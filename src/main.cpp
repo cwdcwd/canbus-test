@@ -1,109 +1,119 @@
-// LoopBackDemo for Teensy 4.x CAN1
+// CAN Send Example
+//
 
-// The FlexCAN module is configured in loop back mode:
-//   it internally receives every CAN frame it sends.
+#include <mcp_can.h>
+#include <SPI.h>
 
-// No external hardware required.
+// Hardware pin definitions
+int UVOUT = A9;   // Output from the sensor
+int REF_3V3 = A8; // 3.3V power on the board
 
-//-----------------------------------------------------------------
+//CWD-- can manager
+MCP_CAN CAN0(10); // Set CS to pin 10
 
-#ifndef __IMXRT1062__
-#error "This sketch should be compiled for Teensy 4.x"
-#endif
+// Takes an average of readings on a given pin
+// Returns the average
+int averageAnalogRead(int pinToRead)
+{
+  byte numberOfReadings = 8;
+  unsigned int runningValue = 0;
 
-//-----------------------------------------------------------------
+  for (int x = 0; x < numberOfReadings; x++)
+    runningValue += analogRead(pinToRead);
+  runningValue /= numberOfReadings;
 
-#include <ACAN_T4.h>
+  return (runningValue);
+}
 
-//-----------------------------------------------------------------
+byte *floatToArray(float f) {
+  byte *b = new byte[4];
+  memcpy(b, &f, 4);
+  // b[0] = (byte)(f >> 24);
+  // b[1] = (byte)(f >> 16);
+  // b[2] = (byte)(f >> 8);
+  // b[3] = (byte)(f /*>> 0*/);
+  return b;
+}
+
+// The Arduino Map function but for floats
+// From: http://forum.arduino.cc/index.php?topic=3922.0
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max) {
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+float takeReading()
+{
+  int uvLevel = averageAnalogRead(UVOUT);
+  int refLevel = averageAnalogRead(REF_3V3);
+  Serial.print("UV Level: ");
+  Serial.print(uvLevel);
+  Serial.print(" / Ref Level: ");
+  Serial.println(refLevel);
+
+  // Use the 3.3V power pin as a reference to get a very accurate output value from sensor
+  float outputVoltage = 3.3 / refLevel * uvLevel;
+
+  float uvIntensity = mapfloat(outputVoltage, 0.0, 3.3, 0.0, 15.0);  // Convert the voltage to a UV intensity level
+  float uvMappedByIOLevel = mapfloat(uvLevel, 0.0, 4095, 0.0, 15.0); // Convert the voltage to a UV intensity level
+
+  Serial.print("output: ");
+  Serial.print(refLevel);
+
+  Serial.print(" sensor output: ");
+  Serial.print(uvLevel);
+
+  Serial.print(" / sensor voltage: ");
+  Serial.print(outputVoltage);
+  Serial.print(" / uvMappedByIOLevel: ");
+  Serial.print(uvMappedByIOLevel);
+
+  Serial.print(" / UV Intensity (mW/cm^2): ");
+  Serial.print(uvIntensity);
+
+  Serial.println();
+
+  return uvIntensity;
+}
 
 void setup()
 {
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  while (!Serial)
-  {
-    delay(50);
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-  }
-  Serial.println("CAN1 loopback test");
-  ACAN_T4_Settings settings(125 * 1000); // 125 kbit/s
-  settings.mLoopBackMode = true;
-  settings.mSelfReceptionMode = true;
-  const uint32_t errorCode = ACAN_T4::can1.begin(settings);
-  Serial.print("Bitrate prescaler: ");
-  Serial.println(settings.mBitRatePrescaler);
-  Serial.print("Propagation Segment: ");
-  Serial.println(settings.mPropagationSegment);
-  Serial.print("Phase segment 1: ");
-  Serial.println(settings.mPhaseSegment1);
-  Serial.print("Phase segment 2: ");
-  Serial.println(settings.mPhaseSegment2);
-  Serial.print("RJW: ");
-  Serial.println(settings.mRJW);
-  Serial.print("Triple Sampling: ");
-  Serial.println(settings.mTripleSampling ? "yes" : "no");
-  Serial.print("Actual bitrate: ");
-  Serial.print(settings.actualBitRate());
-  Serial.println(" bit/s");
-  Serial.print("Exact bitrate ? ");
-  Serial.println(settings.exactBitRate() ? "yes" : "no");
-  Serial.print("Distance from wished bitrate: ");
-  Serial.print(settings.ppmFromWishedBitRate());
-  Serial.println(" ppm");
-  Serial.print("Sample point: ");
-  Serial.print(settings.samplePointFromBitStart());
-  Serial.println("%");
-  if (0 == errorCode)
-  {
-    Serial.println("can1 ok");
-  }
+  Serial.begin(115200);
+  Serial.println("Setup UV Pins");
+  pinMode(UVOUT, INPUT);
+  pinMode(REF_3V3, INPUT);
+
+  // Initialize MCP2515 running at 8MHz with a baudrate of 500kb/s and the masks and filters disabled.
+  if (CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK)
+    Serial.println("MCP2515 Initialized Successfully!");
   else
-  {
-    Serial.print("Error can1: 0x");
-    Serial.println(errorCode, HEX);
-    while (1)
-    {
-      delay(100);
-      Serial.println("Invalid setting");
-      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-    }
-  }
+    Serial.println("Error Initializing MCP2515...");
+
+  CAN0.setMode(MCP_NORMAL); // Change to normal mode to allow messages to be transmitted
 }
 
-//-----------------------------------------------------------------
-
-static uint32_t gBlinkDate = 0;
-static uint32_t gSendDate = 0;
-static uint32_t gSentCount = 0;
-static uint32_t gReceivedCount = 0;
-
-//-----------------------------------------------------------------
+byte data[8] = {0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD, 0xFC};
 
 void loop()
 {
-  if (gBlinkDate <= millis())
-  {
-    gBlinkDate += 500;
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+  float uvIntensity = takeReading();
+
+  byte *b = floatToArray(uvIntensity);
+
+  for(int i = 0; i < 4; i++) {
+    data[i] = b[i];
   }
-  CANMessage message;
-  if (gSendDate <= millis())
-  {
-    message.id = 0x542;
-    const bool ok = ACAN_T4::can1.tryToSend(message);
-    if (ok)
-    {
-      gSendDate += 2000;
-      gSentCount += 1;
-      Serial.print("Sent: ");
-      Serial.println(gSentCount);
-    }
+
+  // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
+  byte sndStat = CAN0.sendMsgBuf(0x100, 0, 8, data);
+  Serial.println(sndStat);
+
+  if (sndStat == CAN_OK) {
+    Serial.println("Message Sent Successfully!");
+  } else {
+    Serial.println("Error Sending Message...");
   }
-  if (ACAN_T4::can1.receive(message))
-  {
-    gReceivedCount += 1;
-    Serial.print("Received: ");
-    Serial.println(gReceivedCount);
-  }
+  delay(1000); // send data per 1000ms
 }
+
+
+
