@@ -5,7 +5,7 @@ StepperMotor::StepperMotor() {
   // constructor
 }
 
-void StepperMotor::init(int _pulsePin, int _dirPin, unsigned long _delayTime, bool _direction)
+void StepperMotor::init(int _pulsePin, int _dirPin, unsigned long _delayTime, unsigned int _direction)
 {
   pulsePin = _pulsePin;
   dirPin = _dirPin;
@@ -58,7 +58,7 @@ bool StepperMotor::getDirection(void)
   return direction;
 }
 
-void StepperMotor::changeDirection(bool _direction)
+void StepperMotor::changeDirection(unsigned int _direction)
 {
   direction = _direction;
 }

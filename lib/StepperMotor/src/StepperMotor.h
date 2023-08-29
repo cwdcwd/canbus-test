@@ -5,13 +5,13 @@ class StepperMotor
 {
   public:
     StepperMotor();
-   
-    void init(int _pulsePin, int _dirPin, unsigned long _delayTime, bool _direction);
+
+    void init(int _pulsePin, int _dirPin, unsigned long _delayTime, unsigned int _direction);
     void stop(void);
     void start(void);
     void control(void);
     bool getDirection(void);
-    void changeDirection(bool _direction);
+    void changeDirection(unsigned int _direction);
     unsigned long steps(void);
     unsigned long pulses(void);
     unsigned long getSpeed(void);
@@ -21,8 +21,9 @@ class StepperMotor
     unsigned long delayTime, deltaTime, currentTime;
     unsigned long pulseCount = 0;
     unsigned long stepCount = 0;
+    unsigned int direction = LOW;
     int pulsePin, dirPin;
-    bool direction, togglePulse, enable;
+    bool togglePulse, enable;
 };
 
 #endif
