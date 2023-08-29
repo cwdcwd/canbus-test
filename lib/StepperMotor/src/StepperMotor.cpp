@@ -53,7 +53,7 @@ void StepperMotor::control(void)
   }
   }
 
-bool StepperMotor::getDirection(void)
+unsigned int StepperMotor::getDirection(void)
 {
   return direction;
 }

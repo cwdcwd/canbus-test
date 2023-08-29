@@ -10,7 +10,7 @@ class StepperMotor
     void stop(void);
     void start(void);
     void control(void);
-    bool getDirection(void);
+    unsigned int getDirection(void);
     void changeDirection(unsigned int _direction);
     unsigned long steps(void);
     unsigned long pulses(void);

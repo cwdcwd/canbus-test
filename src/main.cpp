@@ -18,17 +18,19 @@
 int UVOUT = A9;   // Output from the sensor
 int REF_3V3 = A8; // 3.3V power on the board
 
+unsigned long lastRunUV = 0;
 
 //CWD-- can manager
 long unsigned int rxId;
 unsigned char len = 0;
 unsigned char rxBuf[8];
+byte data[8] = {0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD, 0xFC};
 char msgString[128]; // Array to store serial string
 
 MCP_CAN CAN0(CAN0_CS); // Set CS to pin 10
 
 //CWD-- stepper controller
-StepperMotor stepperMotor;
+StepperMotor *stepperMotor;
 
 // Takes an average of readings on a given pin
 // Returns the average
@@ -94,6 +96,31 @@ float takeReading()
   return uvIntensity;
 }
 
+void runUV() {
+  float uvIntensity = takeReading();
+  byte *b = floatToArray(uvIntensity);
+
+  for (int i = 0; i < 4; i++)
+  {
+    data[i] = b[i];
+  }
+
+  // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
+  byte sndStat = CAN0.sendMsgBuf(0x100, 0, 8, data);
+  Serial.println(sndStat);
+
+  if (sndStat == CAN_OK)
+  {
+    Serial.println("Message Sent Successfully!");
+  }
+  else
+  {
+    Serial.println("Error Sending Message...");
+  }
+
+  lastRunUV = micros();
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -102,7 +129,9 @@ void setup()
   pinMode(REF_3V3, INPUT);
 
   pinMode(CAN0_INT, INPUT); // Configuring pin for /INT input
-  stepperMotor.init(STEP01, DIR01, 1000, true);
+  stepperMotor = new StepperMotor();
+  stepperMotor->init(STEP01, DIR01, 1000, true);
+  stepperMotor->start();
 
   // Initialize MCP2515 running at 8MHz with a baudrate of 500kb/s and the masks and filters disabled.
   if (CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) == CAN_OK)
@@ -113,28 +142,14 @@ void setup()
   CAN0.setMode(MCP_NORMAL); // Change to normal mode to allow messages to be transmitted
 }
 
-byte data[8] = {0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD, 0xFC};
 
 void loop()
 {
-  float uvIntensity = takeReading();
+  stepperMotor->control();
 
-  byte *b = floatToArray(uvIntensity);
-
-  for(int i = 0; i < 4; i++) {
-    data[i] = b[i];
+  if (micros() - lastRunUV > 1000000){
+    runUV();
   }
-
-  // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
-  byte sndStat = CAN0.sendMsgBuf(0x100, 0, 8, data);
-  Serial.println(sndStat);
-
-  if (sndStat == CAN_OK) {
-    Serial.println("Message Sent Successfully!");
-  } else {
-    Serial.println("Error Sending Message...");
-  }
-  delay(1000); // send data per 1000ms
 
   if (!digitalRead(CAN0_INT)) {
     Serial.println("Message Received!");
@@ -159,6 +174,8 @@ void loop()
         sprintf(msgString, " 0x%.2X", rxBuf[i]);
         Serial.print(msgString);
       }
+
+      stepperMotor->changeDirection((stepperMotor->getDirection() == HIGH ? LOW : HIGH));
     }
 
     Serial.println();
